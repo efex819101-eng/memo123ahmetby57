@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MEMO SMM PANEL</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#eef2ff;font-family:Inter,Arial,sans-serif}
+header{padding:22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #202943}
+.logo{font-size:24px;font-weight:900}.logo span{color:#7484ff}
+.wrap{max-width:1100px;margin:auto;padding:25px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:#12192b;border:1px solid #222d48;border-radius:18px;padding:20px;box-shadow:0 12px 35px #0004}
+h1{font-size:32px;margin:8px 0}h2{margin-top:0}label{display:block;margin:12px 0 7px;color:#aab4cc}
+input,select,button{width:100%;padding:13px;border-radius:11px;border:1px solid #303c5c;background:#0c1324;color:white}
+button{background:#7484ff;border:0;font-weight:800;cursor:pointer;margin-top:14px}
+button:hover{filter:brightness(1.1)}
+.stat{font-size:28px;font-weight:900;margin-top:8px}
+.muted{color:#8f9bb6}.row{display:flex;gap:10px}.row>*{flex:1}
+#msg{margin-top:15px;padding:12px;border-radius:10px;display:none}
+table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:11px;border-bottom:1px solid #26314b}
+@media(max-width:750px){.grid{grid-template-columns:1fr}.wrap{padding:15px}.row{flex-direction:column}}
+</style>
+</head>
+<body>
+<header><div class="logo">MEMO <span>INSTAGRAM SMM PANEL</span></div><div id="apiState" class="muted">API kontrol ediliyor...</div></header>
+<main class="wrap">
+<section class="grid">
+ <div class="card"><div class="muted">API Bakiyesi</div><div id="balance" class="stat">—</div></div>
+ <div class="card"><div class="muted">Toplam Sipariş</div><div id="orderCount" class="stat">—</div></div>
+ <div class="card"><div class="muted">Sistem</div><div class="stat">Online</div></div>
+</section>
+
+<div class="card" style="margin-top:18px">
+<h2>Yeni Sipariş</h2>
+<label>Servis</label><select id="service"></select>
+<label>Instagram Profil / Gönderi Linki</label><input id="link" placeholder="https://instagram.com/kullanici">
+<label>Miktar</label><input id="quantity" type="number" min="1" placeholder="1000">
+<button onclick="order()">Sipariş Oluştur</button>
+<div id="msg"></div>
+</div>
+
+<div class="card" style="margin-top:18px">
+<h2>Servisler</h2><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Servis</th><th>1000 oranı</th><th>Min</th><th>Max</th></tr></thead><tbody id="services"></tbody></table></div>
+</div>
+
+<div class="card" style="margin-top:18px">
+<h2>Siparişler</h2><div style="overflow:auto"><table><thead><tr><th>Provider ID</th><th>Servis</th><th>Miktar</th><th>Durum</th></tr></thead><tbody id="orders"></tbody></table></div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const ENDPOINT="/.netlify/functions/api";
+function show(t,ok=false){$("msg").style.display="block";$("msg").textContent=t;$("msg").style.background=ok?"#153b2b":"#45202a"}
+async function api(action,data={}){
+ const r=await fetch(ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action,...data})});
+ const j=await r.json().catch(()=>({error:"Sunucu geçersiz yanıt verdi."}));
+ if(!r.ok || j.error) throw new Error(j.error||"İşlem başarısız");
+ return j;
+}
+function saveOrder(x){const a=JSON.parse(localStorage.getItem("memo_orders")||"[]");a.unshift(x);localStorage.setItem("memo_orders",JSON.stringify(a.slice(0,100)));}
+function getOrders(){return JSON.parse(localStorage.getItem("memo_orders")||"[]")}
+function renderOrders(){const o=getOrders();$("orderCount").textContent=o.length;$("orders").innerHTML=o.map(x=>`<tr><td>${x.providerOrder??"—"}</td><td>${escapeHtml(x.serviceName||x.service)}</td><td>${x.quantity}</td><td>${escapeHtml(x.status||"Gönderildi")}</td></tr>`).join("")}
+function escapeHtml(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;","\"":"&quot;"}[c]))}
+let allServices=[];
+async function load(){
+ try{
+  const s=await api("services");
+  allServices=Array.isArray(s)?s.filter(x=>String(x.category||"").toLowerCase().includes("instagram")):[];
+  $("apiState").textContent="API bağlı";$("apiState").style.color="#55d98b";
+  $("service").innerHTML="";$("services").innerHTML="";
+  allServices.forEach(x=>{
+   const o=document.createElement("option");o.value=x.service;o.textContent=`${x.service} — ${x.name} — ${x.rate}/1000`;$("service").appendChild(o);
+   $("services").insertAdjacentHTML("beforeend",`<tr><td>${escapeHtml(x.service)}</td><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.rate)}</td><td>${escapeHtml(x.min)}</td><td>${escapeHtml(x.max)}</td></tr>`);
+  });
+  if(!allServices.length) show("Instagram hizmeti bulunamadı.");
+ }catch(e){$("apiState").textContent="API bağlantı hatası";$("apiState").style.color="#ff7070";show(e.message)}
+ try{const b=await api("balance");$("balance").textContent=(b.balance??"—")+" "+(b.currency??"TRY")}catch(e){$("balance").textContent="—"}
+ renderOrders();
+}
+async function order(){
+ const serviceId=$("service").value, link=$("link").value.trim(), quantity=$("quantity").value;
+ if(!serviceId||!link||!quantity)return show("Servis, Instagram linki ve miktar gerekli.");
+ if(!/^https?:\/\/(www\.)?instagram\.com\//i.test(link))return show("Instagram bağlantısı gir. Örnek: https://instagram.com/kullanici");
+ const service=allServices.find(x=>String(x.service)===String(serviceId));
+ const q=Number(quantity);
+ if(service && (q<Number(service.min)||q>Number(service.max)))return show(`Miktar ${service.min} - ${service.max} arasında olmalı.`);
+ try{
+  const j=await api("add",{service:serviceId,link,quantity});
+  saveOrder({providerOrder:j.order,service:serviceId,serviceName:service?.name||"Instagram hizmeti",link,quantity:q,status:"Provider'a gönderildi",createdAt:new Date().toISOString()});
+  show("Instagram siparişi oluşturuldu. Provider ID: "+j.order,true);renderOrders();
+  try{const b=await api("balance");$("balance").textContent=(b.balance??"—")+" "+(b.currency??"TRY")}catch{}
+ }catch(e){show(e.message)}
+}
+load();
+</script>
+</body></html>
